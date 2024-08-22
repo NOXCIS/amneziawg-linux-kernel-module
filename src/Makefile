@@ -5,11 +5,10 @@
 WIREGUARD_VERSION = 1.0.0
 
 KERNELRELEASE ?= $(shell uname -r)
-KERNELDIR ?= /lib/modules/6.6.47-0-lts/build
+KERNELDIR ?= /usr/src/linux-headers-6.6.47-0-lts
 PREFIX ?= /usr
 DESTDIR ?=
 SRCDIR ?= $(PREFIX)/src
-DKMSDIR ?= $(SRCDIR)/amneziawg-$(WIREGUARD_VERSION)
 DEPMOD ?= depmod
 DEPMODBASEDIR ?= /
 
@@ -113,15 +112,6 @@ module-install:
 
 install: module-install
 
-DKMS_SOURCES := Makefile Kbuild Kconfig dkms.conf $(call rwildcard,,*.c *.h *.S *.pl *.include *.patch,amneziawg.mod.c kernel/% tests/%)
-dkms-install: $(DKMS_SOURCES)
-	@$(foreach f,$(DKMS_SOURCES),install -v -m0644 -D $(f) $(DESTDIR)$(DKMSDIR)/$(f);)
-	@install -v -m 0755 ../kernel-tree-scripts/prepare-sources.sh "$(DESTDIR)$(DKMSDIR)/prepare-sources.sh"
-	@install -v -m 0755 ../kernel-tree-scripts/cleanup-sources.sh "$(DESTDIR)$(DKMSDIR)/cleanup-sources.sh"
-	if [ "$(realpath $(WG_SOURCE_DIR))" != "" ]; then \
-  		ln -s "$(KERNEL_SOURCE_DIR)" "$(DESTDIR)$(DKMSDIR)/kernel"; \
-  	fi
-
 style:
 	$(KERNELDIR)/scripts/checkpatch.pl -f --max-line-length=4000 --codespell --color=always $(filter-out wireguard.mod.c,$(wildcard *.c)) $(wildcard *.h) $(wildcard selftest/*.c)
 
@@ -136,4 +126,4 @@ cloc:
 
 -include tests/debug.mk
 
-.PHONY: all module module-debug apply-patches module-install install dkms-install clean cloc check style
+.PHONY: all module module-debug apply-patches module-install install clean cloc check style
