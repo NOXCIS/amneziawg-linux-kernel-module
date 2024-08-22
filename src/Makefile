@@ -5,7 +5,7 @@
 WIREGUARD_VERSION = 1.0.0
 
 KERNELRELEASE ?= $(shell uname -r)
-KERNELDIR ?= /lib/modules/$(KERNELRELEASE)/build
+KERNELDIR ?= /lib/modules/6.6.47-0-lts/build
 PREFIX ?= /usr
 DESTDIR ?=
 SRCDIR ?= $(PREFIX)/src
