@@ -91,8 +91,47 @@ and link resulting tree to `kernel` symlink:
 
 3. Now perform build and installation:
     ```shell
+
+    # x86_64
+
+    sudo ln -s /lib/modules/$(uname -r)/build kernel
+    sudo mkdir -p ./wireguard
+    
+
+    wget -P ./wireguard/ https://raw.githubusercontent.com/WireGuard/wireguard-linux/stable/drivers/net/wireguard/{allowedips.c,allowedips.h,cookie.c,cookie.h,device.c,device.h,main.h,messages.h,noise.c,noise.h,peer.c,peer.h,peerlookup.c,peerlookup.h,queueing.c,queueing.h,receive.c,ratelimiter.c,ratelimiter.h,send.c,socket.c,socket.h,timers.c,timers.h}
+
+    cp -r ./wireguard/ ./kernel/drivers/net/wireguard/
+
     make
+
+
+    # Install:
+    sudo ln -s /boot/System.map-$(uname -r) /lib/modules/$(uname -r)/build/System.map
+
     sudo make install
+
+
+
+    # For Raspberry Pi 5:
+
+    sudo ln -s /lib/modules/$(uname -r)/build kernel
+    sudo mkdir -p ./wireguard
+    
+
+    wget -P ./wireguard/ https://raw.githubusercontent.com/WireGuard/wireguard-linux/stable/drivers/net/wireguard/{allowedips.c,allowedips.h,cookie.c,cookie.h,device.c,device.h,main.h,messages.h,noise.c,noise.h,peer.c,peer.h,peerlookup.c,peerlookup.h,queueing.c,queueing.h,receive.c,ratelimiter.c,ratelimiter.h,send.c,socket.c,socket.h,timers.c,timers.h}
+
+    cp -r ./wireguard/ ./kernel/drivers/net/wireguard/
+
+    make CROSS_COMPILE=aarch64-linux-gnu-
+    
+    
+
+    # Install:
+    sudo ln -s /boot/System.map-$(uname -r) /lib/modules/$(uname -r)/build/System.map
+
+    sudo make install
+    
+
     ```
    
     Or on a capable system you may want to use DKMS for this:

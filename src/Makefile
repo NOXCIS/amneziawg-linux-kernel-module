@@ -16,6 +16,9 @@ DEPMODBASEDIR ?= /
 
 PWD := $(shell pwd)
 
+# Add this definition to handle cross-compilation warnings
+CROSS_COMPILE ?=
+
 all: apply-patches module
 debug: apply-patches module-debug
 
@@ -65,6 +68,10 @@ $(GENERATED_SOURCES_DIR)/.patches.stamp: $(sort $(wildcard $(PWD)/patches/*.patc
 	for patch in $^; do \
 		patch -F3 -t -p0 -i $$patch; \
 	done; \
+	# Add specific fix for lltx issue on newer kernels
+	if grep -q "dev->lltx = true" $(GENERATED_SOURCES_DIR)/device.c; then \
+		sed -i 's/dev->lltx = true;//g' $(GENERATED_SOURCES_DIR)/device.c; \
+	fi; \
 	cd $$CWD; \
 	date > $(GENERATED_SOURCES_DIR)/.patches.stamp
 
@@ -91,11 +98,24 @@ MAKEFLAGS += --no-print-directory
 endif
 
 module:
-	@$(MAKE) -C $(KERNELDIR) M=$(TARGET_BUILD_DIR) WIREGUARD_VERSION="$(WIREGUARD_VERSION)" OMIT_ENDPOINTS="$(OMIT_ENDPOINTS)" modules
+	@if [ -f "$(TARGET_BUILD_DIR)/device.c" ] && grep -q "dev->lltx = true" "$(TARGET_BUILD_DIR)/device.c"; then \
+		sed -i 's/dev->lltx = true;//g' "$(TARGET_BUILD_DIR)/device.c"; \
+	fi
+	@$(MAKE) -C $(KERNELDIR) M=$(TARGET_BUILD_DIR) \
+		CROSS_COMPILE=$(CROSS_COMPILE) \
+		WIREGUARD_VERSION="$(WIREGUARD_VERSION)" \
+		OMIT_ENDPOINTS="$(OMIT_ENDPOINTS)" modules
 	[ "$(TARGET_BUILD_DIR)" != "$(PWD)" ] && cp $(TARGET_BUILD_DIR)/amneziawg.ko $(PWD)/amneziawg.ko || true
 
 module-debug:
-	@$(MAKE) -C $(KERNELDIR) M=$(TARGET_BUILD_DIR) V=1 CONFIG_AMNEZIAWG_DEBUG=y WIREGUARD_VERSION="$(WIREGUARD_VERSION)" OMIT_ENDPOINTS="$(OMIT_ENDPOINTS)" modules
+	@if [ -f "$(TARGET_BUILD_DIR)/device.c" ] && grep -q "dev->lltx = true" "$(TARGET_BUILD_DIR)/device.c"; then \
+		sed -i 's/dev->lltx = true;//g' "$(TARGET_BUILD_DIR)/device.c"; \
+	fi
+	@$(MAKE) -C $(KERNELDIR) M=$(TARGET_BUILD_DIR) V=1 \
+		CROSS_COMPILE=$(CROSS_COMPILE) \
+		CONFIG_AMNEZIAWG_DEBUG=y \
+		WIREGUARD_VERSION="$(WIREGUARD_VERSION)" \
+		OMIT_ENDPOINTS="$(OMIT_ENDPOINTS)" modules
 	[ "$(TARGET_BUILD_DIR)" != "$(PWD)" ] && cp $(TARGET_BUILD_DIR)/amneziawg.ko $(PWD)/amneziawg.ko || true
 
 clean:
