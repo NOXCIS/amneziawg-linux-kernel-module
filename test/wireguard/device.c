@@ -19,13 +19,11 @@
 #include <linux/if_arp.h>
 #include <linux/icmp.h>
 #include <linux/suspend.h>
-#include <linux/version.h>
-#include <linux/skbuff.h>
 #include <net/dst_metadata.h>
+#include <net/gso.h>
 #include <net/icmp.h>
 #include <net/rtnetlink.h>
 #include <net/ip_tunnels.h>
-#include <net/gso.h>
 #include <net/addrconf.h>
 
 static LIST_HEAD(device_list);
@@ -33,9 +31,7 @@ static LIST_HEAD(device_list);
 static int wg_open(struct net_device *dev)
 {
 	struct in_device *dev_v4 = __in_dev_get_rtnl(dev);
-#ifndef COMPAT_CANNOT_USE_IN6_DEV_GET
 	struct inet6_dev *dev_v6 = __in6_dev_get(dev);
-#endif
 	struct wg_device *wg = netdev_priv(dev);
 	struct wg_peer *peer;
 	int ret;
@@ -48,14 +44,8 @@ static int wg_open(struct net_device *dev)
 		IN_DEV_CONF_SET(dev_v4, SEND_REDIRECTS, false);
 		IPV4_DEVCONF_ALL(dev_net(dev), SEND_REDIRECTS) = false;
 	}
-#ifndef COMPAT_CANNOT_USE_IN6_DEV_GET
 	if (dev_v6)
-#ifndef COMPAT_CANNOT_USE_DEV_CNF
 		dev_v6->cnf.addr_gen_mode = IN6_ADDR_GEN_MODE_NONE;
-#else
-		dev_v6->addr_gen_mode = IN6_ADDR_GEN_MODE_NONE;
-#endif
-#endif
 
 	mutex_lock(&wg->device_update_lock);
 	ret = wg_socket_init(wg, wg->incoming_port);
@@ -71,9 +61,7 @@ out:
 	return ret;
 }
 
-#ifdef CONFIG_PM_SLEEP
-static int wg_pm_notification(struct notifier_block *nb, unsigned long action,
-			      void *data)
+static int wg_pm_notification(struct notifier_block *nb, unsigned long action, void *data)
 {
 	struct wg_device *wg;
 	struct wg_peer *peer;
@@ -82,7 +70,8 @@ static int wg_pm_notification(struct notifier_block *nb, unsigned long action,
 	 * its normal operation rather than as a somewhat rare event, then we
 	 * don't actually want to clear keys.
 	 */
-	if (IS_ENABLED(CONFIG_PM_AUTOSLEEP) || IS_ENABLED(CONFIG_ANDROID))
+	if (IS_ENABLED(CONFIG_PM_AUTOSLEEP) ||
+	    IS_ENABLED(CONFIG_PM_USERSPACE_AUTOSLEEP))
 		return 0;
 
 	if (action != PM_HIBERNATION_PREPARE && action != PM_SUSPEND_PREPARE)
@@ -104,7 +93,24 @@ static int wg_pm_notification(struct notifier_block *nb, unsigned long action,
 }
 
 static struct notifier_block pm_notifier = { .notifier_call = wg_pm_notification };
-#endif
+
+static int wg_vm_notification(struct notifier_block *nb, unsigned long action, void *data)
+{
+	struct wg_device *wg;
+	struct wg_peer *peer;
+
+	rtnl_lock();
+	list_for_each_entry(wg, &device_list, device_list) {
+		mutex_lock(&wg->device_update_lock);
+		list_for_each_entry(peer, &wg->peer_list, peer_list)
+			wg_noise_expire_current_peer_keypairs(peer);
+		mutex_unlock(&wg->device_update_lock);
+	}
+	rtnl_unlock();
+	return 0;
+}
+
+static struct notifier_block vm_notifier = { .notifier_call = wg_vm_notification };
 
 static int wg_stop(struct net_device *dev)
 {
@@ -204,7 +210,7 @@ static netdev_tx_t wg_xmit(struct sk_buff *skb, struct net_device *dev)
 	 */
 	while (skb_queue_len(&peer->staged_packet_queue) > MAX_STAGED_PACKETS) {
 		dev_kfree_skb(__skb_dequeue(&peer->staged_packet_queue));
-		++dev->stats.tx_dropped;
+		DEV_STATS_INC(dev, tx_dropped);
 	}
 	skb_queue_splice_tail(&packets, &peer->staged_packet_queue);
 	spin_unlock_bh(&peer->staged_packet_queue.lock);
@@ -222,7 +228,7 @@ err_icmp:
 	else if (skb->protocol == htons(ETH_P_IPV6))
 		icmpv6_ndo_send(skb, ICMPV6_DEST_UNREACH, ICMPV6_ADDR_UNREACH, 0);
 err:
-	++dev->stats.tx_errors;
+	DEV_STATS_INC(dev, tx_errors);
 	kfree_skb(skb);
 	return ret;
 }
@@ -231,7 +237,6 @@ static const struct net_device_ops netdev_ops = {
 	.ndo_open		= wg_open,
 	.ndo_stop		= wg_stop,
 	.ndo_start_xmit		= wg_xmit,
-	.ndo_get_stats64	= ip_tunnel_get_stats64
 };
 
 static void wg_destruct(struct net_device *dev)
@@ -256,7 +261,6 @@ static void wg_destruct(struct net_device *dev)
 	rcu_barrier(); /* Wait for all the peers to be actually freed. */
 	wg_ratelimiter_uninit();
 	memzero_explicit(&wg->static_identity, sizeof(wg->static_identity));
-	free_percpu(dev->tstats);
 	kvfree(wg->index_hashtable);
 	kvfree(wg->peer_hashtable);
 	mutex_unlock(&wg->device_update_lock);
@@ -284,21 +288,14 @@ static void wg_setup(struct net_device *dev)
 	dev->needed_tailroom = noise_encrypted_len(MESSAGE_PADDING_MULTIPLE);
 	dev->type = ARPHRD_NONE;
 	dev->flags = IFF_POINTOPOINT | IFF_NOARP;
-#ifndef COMPAT_CANNOT_USE_IFF_NO_QUEUE
 	dev->priv_flags |= IFF_NO_QUEUE;
-#else
-	dev->tx_queue_len = 0;
-#endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,1,0)
-	dev->features |= NETIF_F_LLTX;
-#endif
+	dev->lltx = true;
 	dev->features |= WG_NETDEV_FEATURES;
 	dev->hw_features |= WG_NETDEV_FEATURES;
 	dev->hw_enc_features |= WG_NETDEV_FEATURES;
 	dev->mtu = ETH_DATA_LEN - overhead;
-#ifndef COMPAT_CANNOT_USE_MAX_MTU
 	dev->max_mtu = round_down(INT_MAX, MESSAGE_PADDING_MULTIPLE) - overhead;
-#endif
+	dev->pcpu_stat_type = NETDEV_PCPU_STAT_TSTATS;
 
 	SET_NETDEV_DEVTYPE(dev, &device_type);
 
@@ -333,14 +330,10 @@ static int wg_newlink(struct net *src_net, struct net_device *dev,
 	if (!wg->index_hashtable)
 		goto err_free_peer_hashtable;
 
-	dev->tstats = netdev_alloc_pcpu_stats(struct pcpu_sw_netstats);
-	if (!dev->tstats)
-		goto err_free_index_hashtable;
-
 	wg->handshake_receive_wq = alloc_workqueue("wg-kex-%s",
 			WQ_CPU_INTENSIVE | WQ_FREEZABLE, 0, dev->name);
 	if (!wg->handshake_receive_wq)
-		goto err_free_tstats;
+		goto err_free_index_hashtable;
 
 	wg->handshake_send_wq = alloc_workqueue("wg-kex-%s",
 			WQ_UNBOUND | WQ_FREEZABLE, 0, dev->name);
@@ -382,11 +375,6 @@ static int wg_newlink(struct net *src_net, struct net_device *dev,
 	 */
 	dev->priv_destructor = wg_destruct;
 
-	wg->advanced_security_config.init_packet_magic_header = MESSAGE_HANDSHAKE_INITIATION;
-	wg->advanced_security_config.response_packet_magic_header = MESSAGE_HANDSHAKE_RESPONSE;
-	wg->advanced_security_config.cookie_packet_magic_header = MESSAGE_HANDSHAKE_COOKIE;
-	wg->advanced_security_config.transport_packet_magic_header = MESSAGE_DATA;
-
 	pr_debug("%s: Interface created\n", dev->name);
 	return ret;
 
@@ -404,8 +392,6 @@ err_destroy_handshake_send:
 	destroy_workqueue(wg->handshake_send_wq);
 err_destroy_handshake_receive:
 	destroy_workqueue(wg->handshake_receive_wq);
-err_free_tstats:
-	free_percpu(dev->tstats);
 err_free_index_hashtable:
 	kvfree(wg->index_hashtable);
 err_free_peer_hashtable:
@@ -449,15 +435,17 @@ int __init wg_device_init(void)
 {
 	int ret;
 
-#ifdef CONFIG_PM_SLEEP
 	ret = register_pm_notifier(&pm_notifier);
 	if (ret)
 		return ret;
-#endif
+
+	ret = register_random_vmfork_notifier(&vm_notifier);
+	if (ret)
+		goto error_pm;
 
 	ret = register_pernet_device(&pernet_ops);
 	if (ret)
-		goto error_pm;
+		goto error_vm;
 
 	ret = rtnl_link_register(&link_ops);
 	if (ret)
@@ -467,10 +455,10 @@ int __init wg_device_init(void)
 
 error_pernet:
 	unregister_pernet_device(&pernet_ops);
+error_vm:
+	unregister_random_vmfork_notifier(&vm_notifier);
 error_pm:
-#ifdef CONFIG_PM_SLEEP
 	unregister_pm_notifier(&pm_notifier);
-#endif
 	return ret;
 }
 
@@ -478,123 +466,7 @@ void wg_device_uninit(void)
 {
 	rtnl_link_unregister(&link_ops);
 	unregister_pernet_device(&pernet_ops);
-#ifdef CONFIG_PM_SLEEP
+	unregister_random_vmfork_notifier(&vm_notifier);
 	unregister_pm_notifier(&pm_notifier);
-#endif
 	rcu_barrier();
-}
-
-int wg_device_handle_post_config(struct net_device *dev, struct amnezia_config *asc)
-{
-	struct wg_device *wg = netdev_priv(dev);
-	bool a_sec_on = false;
-	int ret = 0;
-
-	if (!asc->advanced_security)
-		goto out;
-
-	if (asc->junk_packet_count < 0) {
-		net_dbg_ratelimited("%s: JunkPacketCount should be non negative\n", dev->name);
-		ret = -EINVAL;
-	}
-
-	wg->advanced_security_config.junk_packet_count = asc->junk_packet_count;
-	if (asc->junk_packet_count != 0)
-		a_sec_on = true;
-
-	wg->advanced_security_config.junk_packet_min_size = asc->junk_packet_min_size;
-	if (asc->junk_packet_min_size != 0)
-		a_sec_on = true;
-
-	if (asc->junk_packet_count > 0 && asc->junk_packet_min_size == asc->junk_packet_max_size)
-		asc->junk_packet_max_size++;
-
-	if (asc->junk_packet_max_size >= MESSAGE_MAX_SIZE) {
-		wg->advanced_security_config.junk_packet_min_size = 0;
-		wg->advanced_security_config.junk_packet_max_size = 1;
-
-		net_dbg_ratelimited("%s: JunkPacketMaxSize: %d; should be smaller than maxSegmentSize: %d\n",
-							dev->name, asc->junk_packet_max_size,
-							MESSAGE_MAX_SIZE);
-		ret = -EINVAL;
-	} else if (asc->junk_packet_max_size < asc->junk_packet_min_size) {
-		net_dbg_ratelimited("%s: maxSize: %d; should be greater than minSize: %d\n",
-							dev->name, asc->junk_packet_max_size,
-							asc->junk_packet_min_size);
-		ret = -EINVAL;
-	} else
-		wg->advanced_security_config.junk_packet_max_size = asc->junk_packet_max_size;
-
-	if (asc->junk_packet_max_size != 0)
-		a_sec_on = true;
-
-	if (asc->init_packet_junk_size + MESSAGE_INITIATION_SIZE >= MESSAGE_MAX_SIZE) {
-		net_dbg_ratelimited("%s: init header size (%d) + junkSize (%d) should be smaller than maxSegmentSize: %d\n",
-		                    dev->name, MESSAGE_INITIATION_SIZE,
-							asc->init_packet_junk_size, MESSAGE_MAX_SIZE);
-		ret = -EINVAL;
-	} else
-		wg->advanced_security_config.init_packet_junk_size = asc->init_packet_junk_size;
-
-	if (asc->init_packet_junk_size != 0)
-		a_sec_on = true;
-
-	if (asc->response_packet_junk_size + MESSAGE_RESPONSE_SIZE >= MESSAGE_MAX_SIZE) {
-		net_dbg_ratelimited("%s: response header size (%d) + junkSize (%d) should be smaller than maxSegmentSize: %d\n",
-		                    dev->name, MESSAGE_RESPONSE_SIZE,
-		                    asc->response_packet_junk_size, MESSAGE_MAX_SIZE);
-		ret = -EINVAL;
-	} else
-		wg->advanced_security_config.response_packet_junk_size = asc->response_packet_junk_size;
-
-	if (asc->response_packet_junk_size != 0)
-		a_sec_on = true;
-
-	if (asc->init_packet_magic_header > MESSAGE_DATA) {
-		a_sec_on = true;
-		wg->advanced_security_config.init_packet_magic_header = asc->init_packet_magic_header;
-	}
-
-	if (asc->response_packet_magic_header > MESSAGE_DATA) {
-		a_sec_on = true;
-		wg->advanced_security_config.response_packet_magic_header = asc->response_packet_magic_header;
-	}
-
-	if (asc->cookie_packet_magic_header > MESSAGE_DATA) {
-		a_sec_on = true;
-		wg->advanced_security_config.cookie_packet_magic_header = asc->cookie_packet_magic_header;
-	}
-
-	if (asc->transport_packet_magic_header > MESSAGE_DATA) {
-		a_sec_on = true;
-		wg->advanced_security_config.transport_packet_magic_header = asc->transport_packet_magic_header;
-	}
-
-	if (wg->advanced_security_config.init_packet_magic_header == wg->advanced_security_config.response_packet_magic_header ||
-			wg->advanced_security_config.init_packet_magic_header == wg->advanced_security_config.cookie_packet_magic_header ||
-			wg->advanced_security_config.init_packet_magic_header == wg->advanced_security_config.transport_packet_magic_header ||
-			wg->advanced_security_config.response_packet_magic_header == wg->advanced_security_config.cookie_packet_magic_header ||
-			wg->advanced_security_config.response_packet_magic_header == wg->advanced_security_config.transport_packet_magic_header ||
-			wg->advanced_security_config.cookie_packet_magic_header == wg->advanced_security_config.transport_packet_magic_header) {
-		net_dbg_ratelimited("%s: magic headers should differ; got: init:%d; recv:%d; unde:%d; tran:%d\n",
-		                    dev->name,
-							wg->advanced_security_config.init_packet_magic_header,
-		                    wg->advanced_security_config.response_packet_magic_header,
-							wg->advanced_security_config.cookie_packet_magic_header,
-							wg->advanced_security_config.transport_packet_magic_header);
-		ret = -EINVAL;
-	}
-
-	if (MESSAGE_INITIATION_SIZE + wg->advanced_security_config.init_packet_junk_size ==
-		MESSAGE_RESPONSE_SIZE + wg->advanced_security_config.response_packet_junk_size) {
-		net_dbg_ratelimited("%s: new init size:%d; and new response size:%d; should differ\n",
-		                    dev->name,
-		                    MESSAGE_INITIATION_SIZE + asc->init_packet_junk_size,
-		                    MESSAGE_RESPONSE_SIZE + asc->response_packet_junk_size);
-		ret = -EINVAL;
-	}
-
-	wg->advanced_security_config.advanced_security = a_sec_on;
-out:
-	return ret;
 }
