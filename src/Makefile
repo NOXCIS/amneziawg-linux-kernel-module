@@ -62,9 +62,34 @@ apply-patches: $(NEEDED_SOURCES) $(GENERATED_SOURCES_DIR)/.patches.stamp
 $(GENERATED_SOURCES_DIR)/.patches.stamp: $(sort $(wildcard $(PWD)/patches/*.patch))
 	CWD=$$(pwd); \
 	cd $(GENERATED_SOURCES_DIR); \
-	for patch in $^; do \
-		patch -F3 -t -p0 --no-backup-if-mismatch -i $$patch || true; \
+	PATCH_FILES="$(PWD)/patches/*.patch"; \
+	for patch in $$PATCH_FILES; do \
+		if [ -f "$$patch" ] && [ "$$(basename $$patch)" != "*.patch" ]; then \
+			echo "Applying patch: $$patch"; \
+			patch -F3 -t -p0 --no-backup-if-mismatch -i "$$patch" || echo "Patch $$patch failed, continuing..."; \
+		fi; \
 	done; \
+	# Apply kernel compatibility fixes
+	if [ -f "uapi/wireguard.h" ]; then \
+		echo "Fixing WG_GENL_NAME in uapi/wireguard.h"; \
+		sed -i 's/#define WG_GENL_NAME "amneziawg"/#define WG_GENL_NAME amneziawg/g' uapi/wireguard.h; \
+	fi; \
+	if [ -f "device.c" ]; then \
+		echo "Applying kernel compatibility fixes to device.c"; \
+		if ! grep -q "linux/version.h" device.c; then \
+			sed -i '/#include <net\/addrconf.h>/a #include <linux/version.h>' device.c; \
+		fi; \
+		if ! grep -q "net/gso.h" device.c; then \
+			sed -i '/#include <net\/addrconf.h>/a #include <net/gso.h>' device.c; \
+		fi; \
+		if grep -q "dev->features |= NETIF_F_LLTX;" device.c && ! grep -q "KERNEL_VERSION(6,1,0)" device.c; then \
+			sed -i 's/dev->features |= NETIF_F_LLTX;/#if LINUX_VERSION_CODE < KERNEL_VERSION(6,1,0)\n\tdev->features |= NETIF_F_LLTX;\n#endif/g' device.c; \
+		fi; \
+	fi; \
+	if [ -f "main.c" ]; then \
+		echo "Fixing include path in main.c"; \
+		sed -i 's/#include "uapi\/wireguard.h"/#include <uapi\/linux\/wireguard.h>/g' main.c; \
+	fi; \
 	cd $$CWD; \
 	date > $(GENERATED_SOURCES_DIR)/.patches.stamp
 
