@@ -86,5 +86,5 @@ MODULE_DESCRIPTION("AmneziaWG secure network tunnel");
 MODULE_AUTHOR("Jason A. Donenfeld <Jason@zx2c4.com>, AmneziaVPN <admin@amnezia.org>");
 MODULE_VERSION(WIREGUARD_VERSION);
 MODULE_ALIAS_RTNL_LINK(KBUILD_MODNAME);
-MODULE_ALIAS_GENL_FAMILY(WG_GENL_NAME);
+MODULE_ALIAS_GENL_FAMILY("amneziawg");
 MODULE_INFO(intree, "Y");

@@ -1184,6 +1184,22 @@ static inline void dst_cache_reset_now(struct dst_cache *dst_cache)
 #endif
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0) && !defined(ISRHEL9)
+/* NETIF_F_LLTX was removed in kernel 6.12+, use dev->lltx parameter instead */
+/* Define a dummy value to prevent compilation errors in #else branches */
+#ifndef NETIF_F_LLTX
+#define NETIF_F_LLTX 0
+#endif
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
+#include <linux/skbuff.h>
+#include <linux/netdevice.h>
+/* In kernel 6.10+, skb_gso_segment signature changed - ensure it's declared */
+/* The function should be in net/gso.h, but add explicit declaration if needed */
+struct sk_buff *skb_gso_segment(struct sk_buff *skb, netdev_features_t features);
+#endif
+
 /* https://github.com/ClangBuiltLinux/linux/issues/7 */
 #if defined( __clang__) && (!defined(CONFIG_CLANG_VERSION) || CONFIG_CLANG_VERSION < 80000)
 #include <linux/bug.h>

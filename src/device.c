@@ -185,8 +185,13 @@ static netdev_tx_t wg_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (!skb_is_gso(skb)) {
 		skb_mark_not_on_list(skb);
 	} else {
-		struct sk_buff *segs = skb_gso_segment(skb, 0);
+		struct sk_buff *segs;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
+		segs = skb_gso_segment(skb, dev->features);
+#else
+		segs = skb_gso_segment(skb, 0);
+#endif
 		if (IS_ERR(segs)) {
 			ret = PTR_ERR(segs);
 			goto err_peer;
