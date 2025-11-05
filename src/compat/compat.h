@@ -1270,6 +1270,9 @@ static inline u32 get_random_u32_inclusive(u32 floor, u32 ceil)
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0) || defined(ISRHEL9)
 #define COMPAT_NETDEV_HAS_LLTX_PARAM
+#ifndef NETIF_F_LLTX
+#define NETIF_F_LLTX 0
+#endif
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 6, 0)
@@ -1395,6 +1398,19 @@ static inline char *nla_strdup(const struct nlattr *nla, gfp_t flags)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)
 #define COMPAT_CANNOT_USE_NETLINK_MCGRPS
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+/* Ensure proper includes for skb_gso_segment in kernel 6.12+ */
+#include <linux/skbuff.h>
+#include <linux/netdevice.h>
+#include <net/gso.h>
+/* Some kernel 6.12+ configurations may not have skb_gso_segment declared */
+#ifndef __HAVE_SKB_GSO_SEGMENT_DECLARED
+#define __HAVE_SKB_GSO_SEGMENT_DECLARED
+/* Forward declaration as fallback if not in headers */
+struct sk_buff *skb_gso_segment(struct sk_buff *skb, netdev_features_t features);
+#endif
 #endif
 
 #endif /* _WG_COMPAT_H */

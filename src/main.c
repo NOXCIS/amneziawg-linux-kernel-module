@@ -86,5 +86,10 @@ MODULE_DESCRIPTION("AmneziaWG secure network tunnel");
 MODULE_AUTHOR("Jason A. Donenfeld <Jason@zx2c4.com>, AmneziaVPN <admin@amnezia.org>");
 MODULE_VERSION(WIREGUARD_VERSION);
 MODULE_ALIAS_RTNL_LINK(KBUILD_MODNAME);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
 MODULE_ALIAS_GENL_FAMILY(WG_GENL_NAME);
+#else
+/* MODULE_ALIAS_GENL_FAMILY removed or changed in kernel 6.12+ */
+MODULE_ALIAS_GENL_FAMILY("amneziawg");
+#endif
 MODULE_INFO(intree, "Y");
