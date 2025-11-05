@@ -1397,4 +1397,23 @@ static inline char *nla_strdup(const struct nlattr *nla, gfp_t flags)
 #define COMPAT_CANNOT_USE_NETLINK_MCGRPS
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+#ifndef MODULE_ALIAS_GENL_FAMILY
+#define MODULE_ALIAS_GENL_FAMILY(name)
+#endif
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0) && !defined(ISRHEL9)
+#include <linux/netdev_features.h>
+#ifndef NETIF_F_LLTX
+#define NETIF_F_LLTX 0
+#endif
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+#include <linux/skbuff.h>
+#include <linux/netdevice.h>
+#include <net/gso.h>
+#endif
+
 #endif /* _WG_COMPAT_H */
