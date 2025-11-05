@@ -23,8 +23,14 @@ ifneq ($(V),1)
 MAKEFLAGS += --no-print-directory
 endif
 
-module:
+module: apply-kernel-fixes
 	@$(MAKE) -C $(KERNELDIR) M=$(PWD) WIREGUARD_VERSION="$(WIREGUARD_VERSION)" OMIT_ENDPOINTS="$(OMIT_ENDPOINTS)" modules
+
+apply-kernel-fixes:
+	@if [ -d "$(PWD)/generated" ]; then \
+		[ -f "$(PWD)/generated/main.c" ] && sed -i 's/MODULE_ALIAS_GENL_FAMILY(WG_GENL_NAME)/MODULE_ALIAS_GENL_FAMILY("amneziawg")/g' "$(PWD)/generated/main.c" || true; \
+		[ -f "$(PWD)/generated/device.c" ] && sed -i 's/skb_gso_segment(skb, 0)/skb_gso_segment(skb, dev->features)/g' "$(PWD)/generated/device.c" || true; \
+	fi
 
 module-debug:
 	@$(MAKE) -C $(KERNELDIR) M=$(PWD) V=1 CONFIG_AMNEZIAWG_DEBUG=y WIREGUARD_VERSION="$(WIREGUARD_VERSION)" OMIT_ENDPOINTS="$(OMIT_ENDPOINTS)" modules
@@ -57,4 +63,4 @@ cloc:
 
 -include tests/debug.mk
 
-.PHONY: all module module-debug apply-patches module-install install dkms-install clean cloc check style
+.PHONY: all module module-debug apply-patches apply-kernel-fixes module-install install dkms-install clean cloc check style
