@@ -2,6 +2,23 @@
 #
 # Copyright (C) 2015-2019 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
 
+# Apply kernel 6.12+ compatibility fixes after patches
+always += kernel-fixes.stamp
+kernel-fixes.stamp:
+	@GEN_DIR=""; \
+	if [ -d "$(src)/generated" ]; then \
+		GEN_DIR="$(src)/generated"; \
+	elif [ -d "generated" ]; then \
+		GEN_DIR="generated"; \
+	elif [ -d "$(shell dirname $(src))/generated" ]; then \
+		GEN_DIR="$(shell dirname $(src))/generated"; \
+	fi; \
+	if [ -n "$$GEN_DIR" ]; then \
+		[ -f "$$GEN_DIR/main.c" ] && sed -i 's/MODULE_ALIAS_GENL_FAMILY(WG_GENL_NAME)/MODULE_ALIAS_GENL_FAMILY("amneziawg")/g' "$$GEN_DIR/main.c" || true; \
+		[ -f "$$GEN_DIR/device.c" ] && sed -i 's/skb_gso_segment(skb, 0)/skb_gso_segment(skb, dev->features)/g' "$$GEN_DIR/device.c" || true; \
+	fi
+	@touch $@
+
 ccflags-y := -D'pr_fmt(fmt)=KBUILD_MODNAME ": " fmt'
 ccflags-y += -Wframe-larger-than=2048
 ccflags-$(CONFIG_AMNEZIAWG_DEBUG) += -DDEBUG -g
