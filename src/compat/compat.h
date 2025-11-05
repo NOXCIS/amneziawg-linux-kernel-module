@@ -1413,7 +1413,10 @@ static inline char *nla_strdup(const struct nlattr *nla, gfp_t flags)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
+#include <linux/netdev_features.h>
 #include <net/gso.h>
+/* Forward declaration for skb_gso_segment - may not be declared in all kernel 6.12 variants */
+extern struct sk_buff *skb_gso_segment(struct sk_buff *skb, netdev_features_t features);
 #endif
 
 #endif /* _WG_COMPAT_H */
